@@ -1,25 +1,61 @@
 #include <Windows.h>
 
-LRESULT CALLBACK WindowProc(HWND Window,
-                            UINT Message,
-                            WPARAM WParam,
-                            LPARAM LParam)
-{
-    LRESULT Result = 0;
+static bool running;
+static BITMAPINFO bitmapInfo;
+static void* bitmapMemory;
+static HBITMAP bitmapHandle;
+static HDC bitmapDeviceContext;
 
-    switch (Message)
+static void Win32ResizeDIBSection(int width, int height)
+{
+    if (bitmapHandle)
+    {
+        DeleteObject(bitmapHandle);
+    }
+
+    if (!bitmapDeviceContext)
+    {
+        bitmapDeviceContext = CreateCompatibleDC(0);
+    }
+
+    bitmapInfo.bmiHeader.biSize = sizeof(bitmapInfo.bmiHeader);
+    bitmapInfo.bmiHeader.biWidth = width;
+    bitmapInfo.bmiHeader.biHeight = height;
+    bitmapInfo.bmiHeader.biPlanes = 1;
+    bitmapInfo.bmiHeader.biBitCount = 32;
+    bitmapInfo.bmiHeader.biCompression = BI_RGB;
+
+    bitmapHandle = CreateDIBSection(bitmapDeviceContext, &bitmapInfo, DIB_RGB_COLORS, &bitmapMemory, NULL, 0);
+}
+
+static void Win32UpdateWindow(HDC deviceContext, int x, int y, int width, int height)
+{
+    StretchDIBits(deviceContext, x, y, width, height, x, y, width, height,
+                  bitmapMemory, &bitmapInfo, DIB_RGB_COLORS, SRCCOPY);
+}
+
+
+LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    LRESULT result = 0;
+
+    switch (message)
     {
         case WM_SIZE:
         {
-            OutputDebugStringA("WM_SIZE\n");
+            RECT clientRect;
+            GetClientRect(window, &clientRect);
+            int width = clientRect.right - clientRect.left;
+            int height = clientRect.bottom - clientRect.top;
+            Win32ResizeDIBSection(width, height);
         } break;
         case WM_DESTROY:
         {
-            OutputDebugStringA("WM_DESTROY\n");
+            running = false;
         } break;
         case WM_CLOSE:
         {
-            OutputDebugStringA("WM_CLOSE\n");
+            running = false;
         } break;
         case WM_ACTIVATEAPP:
         {
@@ -27,72 +63,69 @@ LRESULT CALLBACK WindowProc(HWND Window,
         } break;
         case WM_PAINT:
         {
-            OutputDebugStringA("WM_PAINT\n");
-            PAINTSTRUCT Paint;
-            HDC DeviceContext = BeginPaint(Window, &Paint);
-            int X = Paint.rcPaint.left;
-            int Y = Paint.rcPaint.top;
-            int Width = Paint.rcPaint.right - Paint.rcPaint.left;
-            int Height = Paint.rcPaint.bottom - Paint.rcPaint.top;
-            static DWORD Operation = WHITENESS;
-            if (Operation == WHITENESS)
+            PAINTSTRUCT paint;
+            HDC deviceContext = BeginPaint(window, &paint);
+            int x = paint.rcPaint.left;
+            int y = paint.rcPaint.top;
+            int width = paint.rcPaint.right - paint.rcPaint.left;
+            int height = paint.rcPaint.bottom - paint.rcPaint.top;
+            Win32UpdateWindow(deviceContext, x, y, width, height);
+            static DWORD operation = WHITENESS;
+            if (operation == WHITENESS)
             {
-                Operation = BLACKNESS;
+                operation = BLACKNESS;
             }
             else
             {
-                Operation = WHITENESS;
+                operation = WHITENESS;
             }
-            PatBlt(DeviceContext, X, Y, Width, Height, Operation);
-            EndPaint(Window, &Paint);
+            PatBlt(deviceContext, x, y, width, height, operation);
+            EndPaint(window, &paint);
         } break;
         default:
         {
             //OutputDebugStringA("Default");
-            Result = DefWindowProcA(Window, Message, WParam, LParam);
+            result = DefWindowProcA(window, message, wParam, lParam);
         } break;
     }
-    return Result;
+    return result;
 }
 
-int CALLBACK WinMain(HINSTANCE Instance,
-                     HINSTANCE PrevInstance,
-                     LPSTR CommandLine,
-                     int ShowCode)
+int CALLBACK WinMain(HINSTANCE instance, HINSTANCE prevInstance, LPSTR commandLine, int showCode)
 {
-    WNDCLASS WindowClass = {};
-    WindowClass.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
-    WindowClass.lpfnWndProc = WindowProc;
-    WindowClass.hInstance = Instance;
-    // WindowClass.hIcon;
-    WindowClass.lpszClassName = "HandmadeHeroWindowClass";
+    WNDCLASS windowClass = {};
+    windowClass.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
+    windowClass.lpfnWndProc = WindowProc;
+    windowClass.hInstance = instance;
+    // windowClass.hIcon;
+    windowClass.lpszClassName = "HandmadeHeroWindowClass";
 
-    if (!RegisterClassA(&WindowClass))
+    if (!RegisterClassA(&windowClass))
     {
         return 1;
         // TODO: Logging
     }
 
-    HWND WindowHandle = CreateWindowEx(0, WindowClass.lpszClassName,
-                                       "Handmade Hero",
-                                       WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                                       CW_USEDEFAULT, CW_USEDEFAULT,
-                                       CW_USEDEFAULT, CW_USEDEFAULT,
-                                       0, 0, Instance, 0);
-    if (!WindowHandle)
+    HWND windowHandle = CreateWindowEx(0, windowClass.lpszClassName, "Handmade Hero", WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, instance, 0);
+    if (!windowHandle)
     {
         return 1;
         // TODO: Logging
     }
 
-    for (;;)
+    running = true;
+    while (running)
     {
-        MSG Message;
-        BOOL MessageResult = GetMessage(&Message, 0, 0, 0);
-        if (MessageResult > 0)
+        MSG message;
+        BOOL messageResult = GetMessage(&message, 0, 0, 0);
+        if (messageResult > 0)
         {
-            TranslateMessage(&Message);
-            DispatchMessage(&Message);
+            TranslateMessage(&message);
+            DispatchMessageA(&message);
+        }
+        else
+        {
+            break;
         }
     }
 
